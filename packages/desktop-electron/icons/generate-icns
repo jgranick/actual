@@ -1,41 +1,65 @@
-#!/bin/sh -e -x
-echo "Generating..."
-if [ $# -ne 1 ]; then
-    echo "Usage: generate filename.svg"
-    exit 100
-fi
-filename="$1"
-name=${filename%.*}
-ext=${filename##*.}
-echo "processing: $name"
-dest="$name".iconset
-mkdir "$dest"
+#!/usr/bin/env node
 
-# macOS icon
-convert -background none -gravity center -extent '1190x1190' "$1" tmp.png
-src=tmp.png
+// Exit on unhandled errors
+process.on("unhandledRejection", err => { throw err; });
+process.on("uncaughtException", err => { throw err; });
 
-convert -background none -resize '!16x16' "$src" "$dest/icon_16x16.png"
-convert -background none -resize '!32x32' "$src" "$dest/icon_16x16@2x.png"
-cp "$dest/icon_16x16@2x.png" "$dest/icon_32x32.png"
-convert -background none -resize '!64x64' "$src" "$dest/icon_32x32@2x.png"
-convert -background none -resize '!128x128' "$src" "$dest/icon_128x128.png"
-convert -background none -resize '!256x256' "$src" "$dest/icon_128x128@2x.png"
-cp "$dest/icon_128x128@2x.png" "$dest/icon_256x256.png"
-convert -background none -resize '!512x512' "$src" "$dest/icon_256x256@2x.png"
-cp "$dest/icon_256x256@2x.png" "$dest/icon_512x512.png"
-convert -background none -resize '!1024x1024' "$src" "$dest/icon_512x512@2x.png"
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-iconutil -c icns "$dest"
-rm -R "$dest"
+// ---------------------------------------------------------------------------
+// Helpers
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", shell: true, ...opts });
+}
 
-# Windows icon
-convert "$src" \
-          \( -clone 0 -resize 16x16 \) \
-          \( -clone 0 -resize 32x32 \) \
-          \( -clone 0 -resize 48x48 \) \
-          \( -clone 0 -resize 64x64 \) \
-          \( -clone 0 -resize 256x256 \) \
-          -delete 0 icon.ico
+// ---------------------------------------------------------------------------
+// Argument check
+const argv = process.argv.slice(2);
+if (argv.length !== 1) {
+  console.error("Usage: generate filename.svg");
+  process.exit(100);
+}
 
-rm tmp.png
+const filename = argv[0];
+const name = path.basename(filename, path.extname(filename));
+const dest = `${name}.iconset`;
+
+console.log("Generating...");
+console.log("Processing:", name);
+
+// ---------------------------------------------------------------------------
+// Create iconset directory
+fs.mkdirSync(dest, { recursive: true });
+
+// ---------------------------------------------------------------------------
+// macOS icon
+run(`convert -background none -gravity center -extent '1190x1190' "${filename}" tmp.png`);
+const src = "tmp.png";
+
+// Resizes
+run(`convert -background none -resize '!16x16' "${src}" "${dest}/icon_16x16.png"`);
+run(`convert -background none -resize '!32x32' "${src}" "${dest}/icon_16x16@2x.png"`);
+fs.copyFileSync(`${dest}/icon_16x16@2x.png`, `${dest}/icon_32x32.png`);
+run(`convert -background none -resize '!64x64' "${src}" "${dest}/icon_32x32@2x.png"`);
+run(`convert -background none -resize '!128x128' "${src}" "${dest}/icon_128x128.png"`);
+run(`convert -background none -resize '!256x256' "${src}" "${dest}/icon_128x128@2x.png"`);
+fs.copyFileSync(`${dest}/icon_128x128@2x.png`, `${dest}/icon_256x256.png`);
+run(`convert -background none -resize '!512x512' "${src}" "${dest}/icon_256x256@2x.png"`);
+fs.copyFileSync(`${dest}/icon_256x256@2x.png`, `${dest}/icon_512x512.png`);
+run(`convert -background none -resize '!1024x1024' "${src}" "${dest}/icon_512x512@2x.png"`);
+
+// Generate macOS .icns
+run(`iconutil -c icns "${dest}"`);
+
+// Cleanup iconset
+fs.rmSync(dest, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
+// Windows icon
+run(`convert "${src}" \\( -clone 0 -resize 16x16 \\) \\( -clone 0 -resize 32x32 \\) \\( -clone 0 -resize 48x48 \\) \\( -clone 0 -resize 64x64 \\) \\( -clone 0 -resize 256x256 \\) -delete 0 icon.ico`);
+
+// Cleanup temporary PNG
+fs.rmSync("tmp.png");

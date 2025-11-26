@@ -1,32 +1,72 @@
-#!/bin/sh
+#!/usr/bin/env node
 
-# See here for more information: https://github.com/actualbudget/actual/tree/master/packages/desktop-client#visual-regression
+// Exit on unhandled errors
+process.on("unhandledRejection", err => { throw err; });
 
-if [ ! -d "node_modules" ] || [ "$(ls -A node_modules)" = "" ]; then
-    yarn
-fi
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-E2E_START_URL="${E2E_START_URL:-https://localhost:3001}"
-VRT_ARGS=""
+// ------------------------------------------------------------
+// Helper to run shell commands
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
 
-# Loop through all arguments
-while [ $# -gt 0 ]; do
-    key="$1"
-    case $key in
-        --e2e-start-url)
-            E2E_START_URL="$2"
-            shift
-            ;;
-        *)
-            VRT_ARGS="$VRT_ARGS $1"
-            ;;
-    esac
-    shift
-done
+// ------------------------------------------------------------
+// Ensure node_modules exists and is not empty
+const nodeModulesPath = path.join(process.cwd(), "node_modules");
+const nodeModulesMissing =
+  !fs.existsSync(nodeModulesPath) ||
+  fs.readdirSync(nodeModulesPath).length === 0;
 
-echo "Running VRT tests with the following parameters:"
-echo "E2E_START_URL: $E2E_START_URL"
-echo "VRT_ARGS: $VRT_ARGS"
+if (nodeModulesMissing) {
+  run("yarn");
+}
 
-MSYS_NO_PATHCONV=1 docker run --rm --network host -v "$(pwd)":/work/ -w /work/ -it mcr.microsoft.com/playwright:v1.56.0-jammy /bin/bash \
-  -c "E2E_START_URL=$E2E_START_URL yarn vrt $VRT_ARGS"
+// ------------------------------------------------------------
+// Default environment variable
+let E2E_START_URL = process.env.E2E_START_URL || "https://localhost:3001";
+let VRT_ARGS = "";
+
+// Argument parsing (mirrors the shell script)
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const key = argv[i];
+
+  switch (key) {
+    case "--e2e-start-url":
+      E2E_START_URL = argv[i + 1];
+      i++;
+      break;
+
+    default:
+      VRT_ARGS += " " + key;
+      break;
+  }
+}
+
+// ------------------------------------------------------------
+// Output parameters
+console.log("Running VRT tests with the following parameters:");
+console.log("E2E_START_URL:", E2E_START_URL);
+console.log("VRT_ARGS:", VRT_ARGS.trim());
+
+// ------------------------------------------------------------
+// Docker run command
+//
+// In Bash you used:
+//
+//   MSYS_NO_PATHCONV=1 docker run ... -c "E2E_START_URL=$E2E_START_URL yarn vrt $VRT_ARGS"
+//
+// We replicate that exactly.
+//
+
+const dockerCmd =
+  `MSYS_NO_PATHCONV=1 docker run --rm --network host ` +
+  `-v "${process.cwd()}":/work/ -w /work/ -it ` +
+  `mcr.microsoft.com/playwright:v1.56.0-jammy /bin/bash ` +
+  `-c "E2E_START_URL=${E2E_START_URL} yarn vrt ${VRT_ARGS}"`;
+
+run(dockerCmd);

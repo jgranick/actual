@@ -1,72 +1,105 @@
-#!/bin/bash -e
+#!/usr/bin/env node
 
+// Equivalent to: set -e
+process.on("unhandledRejection", err => { throw err; });
 
-ROOT=`dirname $0`
-RELEASE=""
-CI=${CI:-false}
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-cd "$ROOT/.."
-POSITIONAL=()
-SKIP_EXE_BUILD=false
-while [[ $# -gt 0 ]]; do
-  key="$1"
+// --- Argument parsing --------------------------------------------------------
 
-  case $key in
-      --release)
-      RELEASE="production"
-      shift
-      ;;
-      --skip-exe-build)
-      SKIP_EXE_BUILD=true
-      shift
-      ;;
-      *)
-      POSITIONAL+=("$1")
-      shift
-      ;;
-  esac
-done
+let RELEASE = "";
+let SKIP_EXE_BUILD = false;
+const POSITIONAL = [];
 
-set -- "${POSITIONAL[@]}"
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  switch (arg) {
+    case "--release":
+      RELEASE = "production";
+      break;
+    case "--skip-exe-build":
+      SKIP_EXE_BUILD = true;
+      break;
+    default:
+      POSITIONAL.push(arg);
+  }
+}
 
-# Get translations
-echo "Updating translations..."
-if ! [ -d packages/desktop-client/locale ]; then
-    git clone https://github.com/actualbudget/translations packages/desktop-client/locale
-fi
-pushd packages/desktop-client/locale > /dev/null
-git pull
-popd > /dev/null
-packages/desktop-client/bin/remove-untranslated-languages
+// Reset positional args (not actually used later, but kept for parity)
+process.argv = [process.argv[0], process.argv[1], ...POSITIONAL];
 
-export NODE_OPTIONS="--max-old-space-size=4096"
+// --- Helpers -----------------------------------------------------------------
 
-yarn workspace plugins-service build
-yarn workspace loot-core build:node
-yarn workspace @actual-app/web build --mode=desktop # electron specific build
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
 
-# required for running the sync-server server
-yarn workspace loot-core build:browser
-yarn workspace @actual-app/web build:browser
-yarn workspace @actual-app/sync-server build
+function pushd(dir) {
+  process.chdir(dir);
+}
 
-yarn workspace desktop-electron update-client
+function popd(prev) {
+  process.chdir(prev);
+}
 
-(
-    cd packages/desktop-electron;
-    yarn clean;
+// --- Script logic ------------------------------------------------------------
 
-    if [ $SKIP_EXE_BUILD == true ]; then
-        echo "Building the dist"
-        yarn build:dist
-        echo "Skipping exe build"
-    else
-      if [ "$RELEASE" == "production" ]; then
-          yarn build
+const ROOT = path.dirname(__filename);
+process.chdir(path.join(ROOT, ".."));
 
-          echo "Created release"
-      else
-          yarn build
-      fi
-    fi
-)
+// Get translations
+console.log("Updating translations...");
+const localeDir = path.join("packages", "desktop-client", "locale");
+
+if (!fs.existsSync(localeDir)) {
+  run(`git clone https://github.com/actualbudget/translations ${localeDir}`);
+}
+
+{
+  const prev = process.cwd();
+  pushd(localeDir);
+  run("git pull");
+  popd(prev);
+}
+
+run("node packages/desktop-client/bin/remove-untranslated-languages");
+
+process.env.NODE_OPTIONS = "--max-old-space-size=4096";
+
+// Build steps
+run("yarn workspace plugins-service build");
+run("yarn workspace loot-core build:node");
+run("yarn workspace @actual-app/web build --mode=desktop");
+
+// Required for running the sync-server server
+run("yarn workspace loot-core build:browser");
+run("yarn workspace @actual-app/web build:browser");
+run("yarn workspace @actual-app/sync-server build");
+
+run("yarn workspace desktop-electron update-client");
+
+// Sub-shell equivalent (cd into packages/desktop-electron)
+{
+  const prev = process.cwd();
+  pushd("packages/desktop-electron");
+
+  run("yarn clean");
+
+  if (SKIP_EXE_BUILD === true) {
+    console.log("Building the dist");
+    run("yarn build:dist");
+    console.log("Skipping exe build");
+  } else {
+    if (RELEASE === "production") {
+      run("yarn build");
+      console.log("Created release");
+    } else {
+      run("yarn build");
+    }
+  }
+
+  popd(prev);
+}

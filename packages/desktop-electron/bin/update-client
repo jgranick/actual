@@ -1,21 +1,99 @@
-#!/bin/bash -e
+#!/usr/bin/env node
 
-ROOT=`dirname $0`/..
+// Exit on unhandled errors
+process.on("unhandledRejection", err => { throw err; });
+process.on("uncaughtException", err => { throw err; });
 
-rm -rf ${ROOT}/build
-mkdir -p ${ROOT}/build
-cp -r ${ROOT}/../desktop-client/build-electron ${ROOT}/build/client-build
+const fs = require("fs");
+const path = require("path");
 
-# Remove the embedded backend for the browser version. Will improve
-# this process
-rm -rf ${ROOT}/build/client-build/data
-rm -rf ${ROOT}/build/client-build/*kcab.*
-rm -rf ${ROOT}/build/client-build/*.wasm
-rm -rf ${ROOT}/build/client-build/*.map
+// ---------------------------------------------------------------------------
+// Helpers
+function rmrf(target) {
+  if (!fs.existsSync(target)) return;
+  const stat = fs.statSync(target);
+  if (stat.isDirectory()) {
+    fs.rmSync(target, { recursive: true, force: true });
+  } else {
+    fs.rmSync(target, { force: true });
+  }
+}
 
-# Copy loot-core into build directory
-mkdir -p ${ROOT}/build/loot-core/lib-dist/electron
-cp ${ROOT}/../loot-core/lib-dist/electron/bundle.desktop.js ${ROOT}/build/loot-core/lib-dist/electron/bundle.desktop.js
-cp ${ROOT}/../loot-core/default-db.sqlite ${ROOT}/build/loot-core/default-db.sqlite
-cp -r ${ROOT}/../loot-core/migrations ${ROOT}/build/loot-core/migrations
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
+function copyFile(src, dest) {
+  fs.copyFileSync(src, dest);
+}
+
+function copyDir(srcDir, destDir) {
+  if (!fs.existsSync(srcDir)) return;
+  mkdirp(destDir);
+
+  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const src = path.join(srcDir, entry.name);
+    const dest = path.join(destDir, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDir(src, dest);
+    } else if (entry.isFile()) {
+      copyFile(src, dest);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ROOT=`dirname $0`/..
+const SCRIPT_DIR = path.dirname(fs.realpathSync(__filename));
+const ROOT = path.join(SCRIPT_DIR, "..");
+
+// ---------------------------------------------------------------------------
+// Clean and recreate build
+const BUILD_DIR = path.join(ROOT, "build");
+rmrf(BUILD_DIR);
+mkdirp(BUILD_DIR);
+
+// ---------------------------------------------------------------------------
+// Copy ../desktop-client/build-electron -> build/client-build
+const CLIENT_BUILD_SRC = path.join(ROOT, "../desktop-client/build-electron");
+const CLIENT_BUILD_DEST = path.join(BUILD_DIR, "client-build");
+copyDir(CLIENT_BUILD_SRC, CLIENT_BUILD_DEST);
+
+// ---------------------------------------------------------------------------
+// Remove embedded backend files
+rmrf(path.join(CLIENT_BUILD_DEST, "data"));
+
+// Remove files matching patterns: *.kcab.*, *.wasm, *.map
+const files = fs.readdirSync(CLIENT_BUILD_DEST);
+for (const file of files) {
+  const fullPath = path.join(CLIENT_BUILD_DEST, file);
+  if (fs.statSync(fullPath).isFile() &&
+      (file.includes(".kcab.") || file.endsWith(".wasm") || file.endsWith(".map"))) {
+    rmrf(fullPath);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Copy loot-core into build
+const LOOT_CORE_BUILD_DIR = path.join(BUILD_DIR, "loot-core", "lib-dist", "electron");
+mkdirp(LOOT_CORE_BUILD_DIR);
+
+// bundle.desktop.js
+copyFile(
+  path.join(ROOT, "../loot-core/lib-dist/electron/bundle.desktop.js"),
+  path.join(LOOT_CORE_BUILD_DIR, "bundle.desktop.js")
+);
+
+// default-db.sqlite
+copyFile(
+  path.join(ROOT, "../loot-core/default-db.sqlite"),
+  path.join(BUILD_DIR, "loot-core", "default-db.sqlite")
+);
+
+// migrations
+copyDir(
+  path.join(ROOT, "../loot-core/migrations"),
+  path.join(BUILD_DIR, "loot-core/migrations")
+);

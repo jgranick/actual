@@ -1,28 +1,117 @@
-#!/bin/bash -e
+#!/usr/bin/env node
 
-cd `dirname "$0"`
-ROOT=`pwd -P`
-VITE_ARGS=""
+// Exit on unhandled errors (like Bash `set -e`)
+process.on("unhandledRejection", err => { throw err; });
 
-DESKTOP_DIR="$ROOT"/../../desktop-client
-SERVICE_WORKER_DIR="$DESKTOP_DIR"/service-worker
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-# Clean out previous build files
-rm -f ../dist/*
-rm -rf "$DESKTOP_DIR"/service-worker
+// ---------------------------------------------------------------------
+// Helpers
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
 
-if [ $NODE_ENV == 'development' ]; then
-  if [ "$OSTYPE" == "msys" ]; then
-    # Ensure symlinks are created as native Windows symlinks.
-    export MSYS=winsymlinks:nativestrict
-  fi
-  ln -snf "$ROOT"/../dist/ "$DESKTOP_DIR"/service-worker
-fi
+function rmrf(target) {
+  if (fs.existsSync(target)) {
+    const stat = fs.statSync(target);
+    if (stat.isDirectory()) {
+      fs.rmSync(target, { recursive: true, force: true });
+    } else {
+      fs.rmSync(target, { force: true });
+    }
+  }
+}
 
-yarn vite build --config ../vite.config.mts --mode $NODE_ENV $VITE_ARGS
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
-if [ $NODE_ENV == 'production' ]; then
-  # In production, just copy the built files
-  mkdir -p "$SERVICE_WORKER_DIR"
-  cp -r ../dist/* "$DESKTOP_DIR"/service-worker
-fi
+// ---------------------------------------------------------------------
+// cd to script directory
+const SCRIPT_DIR = path.dirname(fs.realpathSync(__filename));
+process.chdir(SCRIPT_DIR);
+const ROOT = process.cwd();
+
+// ---------------------------------------------------------------------
+// Argument parsing (collect into VITE_ARGS)
+let VITE_ARGS = process.argv.slice(2).join(" ");
+
+// ---------------------------------------------------------------------
+// Paths
+const DESKTOP_DIR = path.join(ROOT, "../../desktop-client");
+const SERVICE_WORKER_DIR = path.join(DESKTOP_DIR, "service-worker");
+const DIST_DIR = path.join(ROOT, "../dist");
+
+// ---------------------------------------------------------------------
+// Clean previous build files
+rmrf(path.join(ROOT, "../dist/*"));       // Shell wildcard not valid in Node; handled below
+rmrf(SERVICE_WORKER_DIR);
+
+// Clean out dist by removing its contents
+if (fs.existsSync(DIST_DIR)) {
+  for (const entry of fs.readdirSync(DIST_DIR)) {
+    rmrf(path.join(DIST_DIR, entry));
+  }
+}
+
+// ---------------------------------------------------------------------
+// Handle development mode behavior
+const NODE_ENV = process.env.NODE_ENV;
+
+if (NODE_ENV === "development") {
+  if (process.platform === "win32") {
+    // Equivalent to: export MSYS=winsymlinks:nativestrict
+    process.env.MSYS = "winsymlinks:nativestrict";
+  }
+
+  // Create symlink
+  const linkTarget = path.join(DESKTOP_DIR, "service-worker");
+  rmrf(linkTarget);
+
+  // Symlink to ../dist -> service worker
+  fs.symlinkSync(
+    path.join(ROOT, "../dist"),
+    linkTarget,
+    "junction" // safest & works cross-platform
+  );
+}
+
+// ---------------------------------------------------------------------
+// Run Vite build
+run(
+  `yarn vite build --config ../vite.config.mts --mode ${NODE_ENV} ${VITE_ARGS}`
+);
+
+// ---------------------------------------------------------------------
+// Production mode: copy built files
+if (NODE_ENV === "production") {
+  mkdirp(SERVICE_WORKER_DIR);
+
+  for (const entry of fs.readdirSync(DIST_DIR)) {
+    const src = path.join(DIST_DIR, entry);
+    const dest = path.join(SERVICE_WORKER_DIR, entry);
+
+    // Copy directory or file
+    const stat = fs.statSync(src);
+    if (stat.isDirectory()) {
+      // Ensure destination directory exists
+      if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true });
+      }
+
+      // Copy each entry in the directory
+      const entries = fs.readdirSync(src);
+      for (const entry of entries) {
+        const srcPath = path.join(src, entry);
+        const destPath = path.join(dest, entry);
+        copy(srcPath, destPath); // recursive call
+      }
+    } else {
+      // Copy file
+      fs.copyFileSync(src, dest);
+    }
+  }
+}

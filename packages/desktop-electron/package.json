@@ -5,8 +5,8 @@
   "description": "A simple and powerful personal finance system",
   "version": "25.11.0",
   "scripts": {
-    "clean": "rm -rf dist",
-    "update-client": "bin/update-client",
+    "clean": "shx rm -rf dist",
+    "update-client": "node bin/update-client",
     "build": "yarn build:dist && electron-builder",
     "build:dist": "tsc --p tsconfig.dist.json && yarn copy-static-assets",
     "copy-static-assets": "copyfiles --exclude 'build/**/*' **/*.html icons/**/* build/desktop-electron",

@@ -1,21 +1,66 @@
-#!/bin/bash
+#!/usr/bin/env node
 
-set -euo pipefail
+// ---------------------------------------------------------------------------
+// Emulate: set -euo pipefail
+process.on("unhandledRejection", err => { throw err; });
+process.on("uncaughtException", err => { throw err; });
 
-cd "$(dirname "$0")/.." || exit 1
-ROOT="$(pwd -P)"
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
 
-yarn tsc -p tsconfig.api.json --outDir ../api/@types/loot-core/
-# Copy existing handwritten .d.ts files, as tsc doesn't move them for us
-dest="../../api/@types/loot-core"
-cd src
-find . -type f -name "*.d.ts" | while read -r f
-do
-    d=$(dirname "${f}")
-    d="${dest}/${d}"
-    mkdir -p "${d}"
-    cp "${f}" "${d}"
-done
-cd "$ROOT"
-yarn vite build --config ./vite.api.config.ts;
-./bin/copy-migrations ../api
+// ---------------------------------------------------------------------------
+// Helpers
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
+
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+// ---------------------------------------------------------------------------
+// cd "$(dirname "$0")/.."
+const SCRIPT_DIR = path.dirname(fs.realpathSync(__filename));
+const ROOT = path.resolve(SCRIPT_DIR, "..");
+process.chdir(ROOT);
+
+// ---------------------------------------------------------------------------
+// 1. yarn tsc -p tsconfig.api.json --outDir ../api/@types/loot-core/
+run(`yarn tsc -p tsconfig.api.json --outDir ../api/@types/loot-core/`);
+
+// ---------------------------------------------------------------------------
+// 2. Copy handwritten .d.ts files (tsc will not move them)
+//    Equivalent to the Bash `find` loop.
+const srcDir = path.join(ROOT, "src");
+const destRoot = path.resolve(ROOT, "../../api/@types/loot-core");
+
+function walkAndCopyDts(dir, rel = "") {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    const relative = path.join(rel, entry.name);
+
+    if (entry.isDirectory()) {
+      walkAndCopyDts(full, relative);
+    } else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
+      const dest = path.join(destRoot, rel);
+      mkdirp(dest);
+      const destFile = path.join(dest, entry.name);
+      fs.copyFileSync(full, destFile);
+    }
+  }
+}
+
+walkAndCopyDts(srcDir);
+
+// ---------------------------------------------------------------------------
+// 3. yarn vite build --config ./vite.api.config.ts
+run(`yarn vite build --config ./vite.api.config.ts`);
+
+// ---------------------------------------------------------------------------
+// 4. ./bin/copy-migrations ../api
+const copyMigrations = path.join(ROOT, "bin/copy-migrations");
+run(`node "${copyMigrations}" ../api`);

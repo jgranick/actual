@@ -1,10 +1,31 @@
-#!/bin/sh -e
+#!/usr/bin/env node
 
-ROOT=`dirname $0`
-cd "$ROOT/.."
+// Exit on unhandled errors (like `set -e`)
+process.on("unhandledRejection", err => { throw err; });
+process.on("uncaughtException", err => { throw err; });
 
-export IS_GENERIC_BROWSER=1
-export PORT=3001
-export REACT_APP_BACKEND_WORKER_HASH="dev"
+const { execSync } = require("child_process");
+const path = require("path");
 
-yarn start
+// ---------------------------------------------------------------------------
+// Helpers
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
+
+// ---------------------------------------------------------------------------
+// ROOT=`dirname $0`; cd "$ROOT/.."
+const SCRIPT_DIR = path.dirname(require("fs").realpathSync(__filename));
+const ROOT = path.join(SCRIPT_DIR, "..");
+process.chdir(ROOT);
+
+// ---------------------------------------------------------------------------
+// Set environment variables
+process.env.IS_GENERIC_BROWSER = "1";
+process.env.PORT = "3001";
+process.env.REACT_APP_BACKEND_WORKER_HASH = "dev";
+
+// ---------------------------------------------------------------------------
+// Run yarn start
+run("yarn start");

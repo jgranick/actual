@@ -1,18 +1,94 @@
-#!/bin/sh -ex
+#!/usr/bin/env node
 
-ROOT=`dirname $0`
-cd "$ROOT/.."
+// ---------------------------------------------------------------------------
+// Emulate: set -e
+process.on("unhandledRejection", err => { throw err; });
+process.on("uncaughtException", err => { throw err; });
 
-echo "Building the browser..."
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
 
-rm -fr build
+// ---------------------------------------------------------------------------
+// Helpers
+function run(cmd, opts = {}) {
+  console.log(`> ${cmd}`);
+  execSync(cmd, { stdio: "inherit", ...opts });
+}
 
-export IS_GENERIC_BROWSER=1
-export REACT_APP_BACKEND_WORKER_HASH=`ls "$ROOT"/../public/kcab/kcab.worker.*.js |  sed 's/.*kcab\.worker\.\(.*\)\.js/\1/'`
+function rmrf(target) {
+  if (!fs.existsSync(target)) return;
+  const stat = fs.statSync(target);
+  if (stat.isDirectory()) {
+    fs.rmSync(target, { recursive: true, force: true });
+  } else {
+    fs.rmSync(target, { force: true });
+  }
+}
 
-yarn build
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
-rm -fr build-stats
-mkdir build-stats
-mv build/kcab/stats.json build-stats/loot-core-stats.json
-mv ./stats.json build-stats/web-stats.json
+// ---------------------------------------------------------------------------
+// ROOT=`dirname $0`; cd "$ROOT/.."
+const SCRIPT_DIR = path.dirname(fs.realpathSync(__filename));
+const ROOT = SCRIPT_DIR;
+process.chdir(path.join(ROOT, ".."));
+
+// ---------------------------------------------------------------------------
+console.log("Building the browser...");
+
+// ---------------------------------------------------------------------------
+// rm -fr build
+rmrf("build");
+
+// ---------------------------------------------------------------------------
+// export IS_GENERIC_BROWSER=1
+process.env.IS_GENERIC_BROWSER = "1";
+
+// ---------------------------------------------------------------------------
+// Extract hash from: ../public/kcab/kcab.worker.*.js
+const kcabDir = path.join(ROOT, "../public/kcab");
+let hash = "";
+
+if (fs.existsSync(kcabDir)) {
+  const files = fs.readdirSync(kcabDir);
+  const worker = files.find(f => /^kcab\.worker\..*\.js$/.test(f));
+  if (!worker) {
+    console.error("Error: No matching kcab.worker.*.js file found.");
+    process.exit(1);
+  }
+  // Extract substring between kcab.worker. and .js
+  hash = worker.replace(/^kcab\.worker\.(.*)\.js$/, "$1");
+} else {
+  console.error("Error: Directory not found:", kcabDir);
+  process.exit(1);
+}
+
+process.env.REACT_APP_BACKEND_WORKER_HASH = hash;
+
+// ---------------------------------------------------------------------------
+// yarn build
+run("yarn build");
+
+// ---------------------------------------------------------------------------
+// Cleanup & move stats
+rmrf("build-stats");
+mkdirp("build-stats");
+
+const lootStatsSrc = path.join("build/kcab/stats.json");
+const webStatsSrc = path.join("stats.json");
+
+if (!fs.existsSync(lootStatsSrc)) {
+  console.error("Error: Missing build/kcab/stats.json");
+  process.exit(1);
+}
+
+if (!fs.existsSync(webStatsSrc)) {
+  console.error("Error: Missing ./stats.json");
+  process.exit(1);
+}
+
+fs.renameSync(lootStatsSrc, "build-stats/loot-core-stats.json");
+fs.renameSync(webStatsSrc, "build-stats/web-stats.json");

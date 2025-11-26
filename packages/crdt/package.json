@@ -11,7 +11,7 @@
   "scripts": {
     "build:node": "tsc --p tsconfig.dist.json",
     "proto:generate": "./bin/generate-proto",
-    "build": "rm -rf dist && yarn run build:node",
+    "build": "shx rm -rf dist && yarn run build:node",
     "test": "vitest --run --globals"
   },
   "dependencies": {

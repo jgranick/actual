@@ -1,9 +1,73 @@
-#!/bin/bash -e
+#!/usr/bin/env node
 
-ROOT=`dirname $(dirname "$0")`
-DEST="$1"
+// Equivalent to: set -e
+process.on("unhandledRejection", err => { throw err; });
 
-rm -rf "$DEST"/migrations
-mkdir -p "$DEST"/migrations
-cp "$ROOT"/migrations/* "$DEST"/migrations/
-cp "$ROOT"/default-db.sqlite "$DEST"
+const fs = require("fs");
+const path = require("path");
+
+// ---------------------------------------------------------------------------
+// Helpers
+function rmrf(target) {
+  if (!fs.existsSync(target)) return;
+  const stat = fs.statSync(target);
+  if (stat.isDirectory()) {
+    fs.rmSync(target, { recursive: true, force: true });
+  } else {
+    fs.rmSync(target, { force: true });
+  }
+}
+
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+// ---------------------------------------------------------------------------
+// ROOT = dirname(dirname("$0"))
+const SCRIPT_PATH = fs.realpathSync(__filename);
+const ROOT = path.dirname(path.dirname(SCRIPT_PATH));
+
+// DEST is first positional argument
+const DEST = process.argv[2];
+
+if (!DEST) {
+  console.error("Usage: copy-migrations.js <dest-dir>");
+  process.exit(1);
+}
+
+const DEST_MIGRATIONS = path.join(DEST, "migrations");
+
+// ---------------------------------------------------------------------------
+// rm -rf "$DEST"/migrations
+rmrf(DEST_MIGRATIONS);
+
+// mkdir -p "$DEST"/migrations
+mkdirp(DEST_MIGRATIONS);
+
+// cp "$ROOT"/migrations/* "$DEST"/migrations/
+const SRC_MIGRATIONS_DIR = path.join(ROOT, "migrations");
+if (fs.existsSync(SRC_MIGRATIONS_DIR)) {
+  for (const entry of fs.readdirSync(SRC_MIGRATIONS_DIR)) {
+    const src = path.join(SRC_MIGRATIONS_DIR, entry);
+    const dest = path.join(DEST_MIGRATIONS, entry);
+
+    const stat = fs.statSync(src);
+    if (stat.isFile()) {
+      fs.copyFileSync(src, dest);
+    }
+  }
+} else {
+  console.error(`Error: Source migrations directory not found: ${SRC_MIGRATIONS_DIR}`);
+  process.exit(1);
+}
+
+// cp "$ROOT"/default-db.sqlite "$DEST"
+const srcDb = path.join(ROOT, "default-db.sqlite");
+const destDb = path.join(DEST, "default-db.sqlite");
+
+if (fs.existsSync(srcDb)) {
+  fs.copyFileSync(srcDb, destDb);
+} else {
+  console.error(`Error: default-db.sqlite not found at ${srcDb}`);
+  process.exit(1);
+}

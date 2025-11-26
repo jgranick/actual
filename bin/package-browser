@@ -1,23 +1,41 @@
-#!/bin/bash -e
+#!/usr/bin/env node
 
-ROOT=`dirname $0`
+const { execSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 
-cd "$ROOT/.."
+function run() {
+  const ROOT = path.resolve(__dirname, '..');
+  process.chdir(ROOT);
 
-echo "Updating translations..."
-if ! [ -d packages/desktop-client/locale ]; then
-    git clone https://github.com/actualbudget/translations packages/desktop-client/locale
-fi
-pushd packages/desktop-client/locale > /dev/null
-git checkout .
-git pull
-popd > /dev/null
-packages/desktop-client/bin/remove-untranslated-languages
+  console.log("Updating translations...");
 
-export NODE_OPTIONS="--max-old-space-size=4096"
+  const localePath = path.join(ROOT, 'packages/desktop-client/locale');
+  if (!fs.existsSync(localePath)) {
+    // Clone the translations repository if it doesn't exist
+    execSync('git clone https://github.com/actualbudget/translations packages/desktop-client/locale', { stdio: 'inherit' });
+  }
 
-yarn workspace plugins-service build
-yarn workspace loot-core build:browser
-yarn workspace @actual-app/web build:browser
+  // Navigate into the locale directory and update
+  process.chdir(localePath);
+  execSync('git checkout .', { stdio: 'inherit' });
+  execSync('git pull', { stdio: 'inherit' });
 
-echo "packages/desktop-client/build"
+  // Return to the root directory
+  process.chdir(ROOT);
+
+  // Call the remove untranslated languages script (if needed)
+  execSync('node packages/desktop-client/bin/remove-untranslated-languages', { stdio: 'inherit' });
+
+  // Set the NODE_OPTIONS environment variable
+  process.env.NODE_OPTIONS = '--max-old-space-size=4096';
+
+  // Run the build commands for each workspace
+  execSync('yarn workspace plugins-service build', { stdio: 'inherit' });
+  execSync('yarn workspace loot-core build:browser', { stdio: 'inherit' });
+  execSync('yarn workspace @actual-app/web build:browser', { stdio: 'inherit' });
+
+  console.log('packages/desktop-client/build');
+}
+
+run();
