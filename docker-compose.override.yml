@@ -1,0 +1,6 @@
+services:
+  app:
+    build:
+      dockerfile: sync-server.Dockerfile  # Override Dockerfile for this environment
+    environment:
+      - PLATFORM=windows
