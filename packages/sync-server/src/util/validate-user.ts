@@ -1,3 +1,4 @@
+import { Request, Response } from 'express';
 import ipaddr from 'ipaddr.js';
 
 import { getSession } from '../account-db.js';
@@ -10,8 +11,8 @@ const MS_PER_SECOND = 1000;
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  */
-export function validateSession(req, res) {
-  let { token } = req.body || {};
+export function validateSession(req: Request, res: Response) {
+  let { token }: { token?: string | string[] } = req.body || {};
 
   if (!token) {
     token = req.headers['x-actual-token'];
@@ -44,7 +45,7 @@ export function validateSession(req, res) {
   return session;
 }
 
-export function validateAuthHeader(req) {
+export function validateAuthHeader(req: Request): boolean {
   // fallback to trustedProxies when trustedAuthProxies not set
   const trustedAuthProxies =
     config.get('trustedAuthProxies') ?? config.get('trustedProxies');

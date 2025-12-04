@@ -1,12 +1,12 @@
 import { createInterface, cursorTo } from 'node:readline';
 
-export async function prompt(message) {
+export async function prompt(message: string): Promise<string> {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
-  const promise = new Promise(resolve => {
+  const promise = new Promise<string>(resolve => {
     rl.question(message, answer => {
       resolve(answer);
       rl.close();
@@ -18,7 +18,7 @@ export async function prompt(message) {
   return answer;
 }
 
-export async function promptPassword() {
+export async function promptPassword(): Promise<string> {
   const password = await askForPassword('Enter a password, then press enter: ');
 
   if (password === '') {
@@ -38,10 +38,11 @@ export async function promptPassword() {
   return password;
 }
 
-async function askForPassword(prompt) {
-  let dataListener, endListener;
+async function askForPassword(prompt: string): Promise<string> {
+  let dataListener: (key: Buffer | string) => void;
+  let endListener: () => void;
 
-  const promise = new Promise(resolve => {
+  const promise = new Promise<string>(resolve => {
     let result = '';
     process.stdout.write(prompt);
     process.stdin.setRawMode(true);
